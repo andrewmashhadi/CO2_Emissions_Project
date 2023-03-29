@@ -1,0 +1,111 @@
+% $ biblatex auxiliary file $
+% $ biblatex bbl format version 3.2 $
+% Do not modify the above lines!
+%
+% This is an auxiliary file used by the 'biblatex' package.
+% This file may safely be deleted. It will be recreated by
+% biber as required.
+%
+\begingroup
+\makeatletter
+\@ifundefined{ver@biblatex.sty}
+  {\@latex@error
+     {Missing 'biblatex' package}
+     {The bibliography requires the 'biblatex' package.}
+      \aftergroup\endinput}
+  {}
+\endgroup
+
+
+\refsection{0}
+  \datalist[entry]{nty/global//global/global}
+    \entry{uclaoarc}{online}{}
+      \name{author}{1}{}{%
+        {{hash=94e187504f0e952da0615bb3f5ae09a5}{%
+           family={Advanced\bibnamedelimb Research\bibnamedelima Computing},
+           familyi={A\bibinitperiod\bibinitdelim R\bibinitperiod\bibinitdelim C\bibinitperiod},
+           given={UCLA\bibnamedelima Office},
+           giveni={U\bibinitperiod\bibinitdelim O\bibinitperiod},
+           prefix={of},
+           prefixi={o\bibinitperiod}}}%
+      }
+      \strng{namehash}{94e187504f0e952da0615bb3f5ae09a5}
+      \strng{fullhash}{94e187504f0e952da0615bb3f5ae09a5}
+      \strng{bibnamehash}{94e187504f0e952da0615bb3f5ae09a5}
+      \strng{authorbibnamehash}{94e187504f0e952da0615bb3f5ae09a5}
+      \strng{authornamehash}{94e187504f0e952da0615bb3f5ae09a5}
+      \strng{authorfullhash}{94e187504f0e952da0615bb3f5ae09a5}
+      \field{sortinit}{A}
+      \field{sortinithash}{2f401846e2029bad6b3ecc16d50031e2}
+      \field{labelnamesource}{author}
+      \field{labeltitlesource}{title}
+      \field{addendum}{(accessed: 03.09.2023)}
+      \field{title}{How can I perform a factor analysis with categorical (or categorical and continuous) variables?}
+      \verb{urlraw}
+      \verb https://stats.oarc.ucla.edu/stata/faq/how-can-i-perform-a-factor-analysis-with-categorical-or-categorical-and-continuous-variables/
+      \endverb
+      \verb{url}
+      \verb https://stats.oarc.ucla.edu/stata/faq/how-can-i-perform-a-factor-analysis-with-categorical-or-categorical-and-continuous-variables/
+      \endverb
+      \keyw{ucla,oarc,factor analysis}
+    \endentry
+    \entry{co2data}{online}{}
+      \name{author}{1}{}{%
+        {{hash=26919824067e5f329e3732e7de2dd13f}{%
+           family={Podder},
+           familyi={P\bibinitperiod},
+           given={Debajyoti},
+           giveni={D\bibinitperiod}}}%
+      }
+      \strng{namehash}{26919824067e5f329e3732e7de2dd13f}
+      \strng{fullhash}{26919824067e5f329e3732e7de2dd13f}
+      \strng{bibnamehash}{26919824067e5f329e3732e7de2dd13f}
+      \strng{authorbibnamehash}{26919824067e5f329e3732e7de2dd13f}
+      \strng{authornamehash}{26919824067e5f329e3732e7de2dd13f}
+      \strng{authorfullhash}{26919824067e5f329e3732e7de2dd13f}
+      \field{sortinit}{P}
+      \field{sortinithash}{ff3bcf24f47321b42cb156c2cc8a8422}
+      \field{labelnamesource}{author}
+      \field{labeltitlesource}{title}
+      \field{addendum}{(accessed: 03.09.2023)}
+      \field{title}{CO2 Emission by Vehicles}
+      \verb{urlraw}
+      \verb https://www.kaggle.com/datasets/debajyotipodder/co2-emission-by-vehicles
+      \endverb
+      \verb{url}
+      \verb https://www.kaggle.com/datasets/debajyotipodder/co2-emission-by-vehicles
+      \endverb
+      \keyw{kaggle,co2 emissions,data}
+    \endentry
+    \entry{mixedCorr}{online}{}
+      \name{author}{1}{}{%
+        {{hash=89652dabff9fba314f4f86dea2c8f15d}{%
+           family={Revelle},
+           familyi={R\bibinitperiod},
+           given={William},
+           giveni={W\bibinitperiod}}}%
+      }
+      \strng{namehash}{89652dabff9fba314f4f86dea2c8f15d}
+      \strng{fullhash}{89652dabff9fba314f4f86dea2c8f15d}
+      \strng{bibnamehash}{89652dabff9fba314f4f86dea2c8f15d}
+      \strng{authorbibnamehash}{89652dabff9fba314f4f86dea2c8f15d}
+      \strng{authornamehash}{89652dabff9fba314f4f86dea2c8f15d}
+      \strng{authorfullhash}{89652dabff9fba314f4f86dea2c8f15d}
+      \field{sortinit}{R}
+      \field{sortinithash}{5e1c39a9d46ffb6bebd8f801023a9486}
+      \field{labelnamesource}{author}
+      \field{labeltitlesource}{title}
+      \field{addendum}{(accessed: 03.09.2023)}
+      \field{title}{mixedCor: Find correlations for mixtures of continuous, polytomous, and dichotomous variables}
+      \verb{urlraw}
+      \verb https://www.rdocumentation.org/packages/psych/versions/2.2.9/topics/mixedCor
+      \endverb
+      \verb{url}
+      \verb https://www.rdocumentation.org/packages/psych/versions/2.2.9/topics/mixedCor
+      \endverb
+      \keyw{correlation,polychoric,tetrachoric,polyserial}
+    \endentry
+  \enddatalist
+\endrefsection
+\endinput
+

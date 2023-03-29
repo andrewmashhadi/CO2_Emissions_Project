@@ -1,0 +1,362 @@
+---
+title: "CO2 Emissions Project EDA"
+author: "Andrew Mashhadi"
+date: '`r Sys.Date()`'
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+# Loading the Data & Libraries
+
+```{r, echo = FALSE, warning = FALSE, error = FALSE}
+library(DAAG)
+library(RColorBrewer)
+library(dplyr)
+library(effects)
+library(car)
+library(corrplot) 
+library(caret)
+library(readr)
+library(ggplot2)
+```
+
+
+```{r}
+co2_df <- read.csv("dataset/CO2_emissions.csv")
+
+n_rows <- nrow(co2_df)
+n_na <- sum(!complete.cases(co2_df))
+
+# rows with missing values percent 
+n_na/n_rows
+
+```
+
+# Summarize CO2 Emissions Data-set
+
+```{r}
+
+summary(co2_df)
+
+```
+
+# Feature Engineering and EDA 
+
+## Vehicle Make
+
+
+```{r}
+
+# set consistent colors
+coul <- brewer.pal(5, "Set2")
+
+# Group the manufacturers into less categories
+co2_df <- co2_df %>% 
+          mutate(econ.class = case_when(
+          Make == "FORD" | Make == "RAM" | 
+          Make == "DODGE" | Make == "CHRYSLER" |
+          Make == "CHEVROLET" | Make == "GMC" |
+          Make == "JEEP" |
+          Make == "HONDA" | Make == "HYUNDAI" | 
+          Make == "KIA" | Make == "MITSUBISHI" |
+          Make == "NISSAN" | Make == "SCION" |  
+          Make == "SUBARU" | Make == "TOYOTA" |
+          Make == "MAZDA" |
+          Make == "VOLKSWAGON" | Make == "VOLVO" | 
+          Make == "SMART" | Make == "FIAT" ~ "Economy",
+          Make == "BUICK" | Make == "LINCOLN" | 
+          Make == "CADILLAC" | Make == "SRT" |
+          Make == "JAGUAR" |
+          Make == "ACURA" | Make == "GENESIS" | 
+          Make == "INFINITI" | Make == "LEXUS" |
+          Make == "AUDI" | Make == "ALFA ROMERO" |
+          Make == "BMW" | Make == "MINI" |
+          Make == "MERCEDES-BENZ" | Make == "LAND ROVER" ~ "Premium",
+          Make == "ASTON MARTIN" | Make == "BENTLEY" | 
+          Make == "BUGATTI" | Make == "LAMBORCHINI" | 
+          Make == "PORCHSE" | Make == "ROLLS-ROYCE" ~ "Luxury")) %>%
+          select(-c(Make))
+
+co2_df$econ.class <- factor(co2_df$econ.class)
+
+## new categories
+table(co2_df$econ.class)
+
+barplot(table(co2_df$econ.class),
+        main='Economic Classes',
+        col = coul)
+
+boxplot(co2_df$CO2.Emissions~co2_df$econ.class,  
+        main="CO2 Emissions vs. Economic Classes",
+        xlab = "",
+        ylab = "CO2 Emissions",
+        col = coul[1])
+
+```
+
+
+## Drive
+
+```{r}
+
+# simplified categories
+co2_df <- co2_df %>% 
+          mutate(drive = case_when(
+          grepl("4WD", Model, ignore.case = TRUE) |
+          grepl("4X4", Model, ignore.case = TRUE) |
+          grepl("AWD", Model, ignore.case = TRUE) |
+          grepl("xDrive", Model, ignore.case = TRUE) ~ "All-Wheel Drive",
+          TRUE ~ "Two-Wheel Drive")) %>%
+          select(-c(Model))
+
+co2_df$drive <- factor(co2_df$drive)
+
+table(co2_df$drive)
+
+barplot(table(co2_df$drive),
+        main='Drive Types',
+        col = coul)
+
+boxplot(co2_df$CO2.Emissions~co2_df$drive,  
+        main="CO2 Emissions vs. Drive Type",
+        xlab = "",
+        ylab = "CO2 Emissions",
+        col = coul[1])
+
+
+```
+
+
+## Vehicle Class
+
+```{r}
+
+co2_df <- co2_df %>% 
+          mutate(Vehicle.Class = case_when(
+          Vehicle.Class == "COMPACT" | Vehicle.Class == "SUBCOMPACT" |
+          Vehicle.Class == "MINICOMPACT" | Vehicle.Class == "TWO-SEATER" ~ "COMPACT",
+          Vehicle.Class == "MID-SIZE" | Vehicle.Class == "STATION WAGON - MID-SIZE" | 
+          Vehicle.Class == "STATION WAGON - SMALL"~ "MID-SIZE",
+          Vehicle.Class == "FULL-SIZE" ~ "FULL-SIZE",
+          Vehicle.Class == "MINIVAN" | Vehicle.Class == "VAN - CARGO" |
+          Vehicle.Class == "VAN - PASSENGER"  |
+          Vehicle.Class == "PICKUP TRUCK - SMALL" | 
+          Vehicle.Class == "PICKUP TRUCK - STANDARD" |
+          Vehicle.Class == "SUV - SMALL" | 
+          Vehicle.Class == "SUV - STANDARD" ~ "LARGE VEHICLE"))
+
+co2_df$Vehicle.Class <- factor(co2_df$Vehicle.Class)
+
+## new categories
+table(co2_df$Vehicle.Class)
+
+barplot(table(co2_df$Vehicle.Class),
+        main='Vehicle Classes',
+        col = coul)
+
+boxplot(co2_df$CO2.Emissions~co2_df$Vehicle.Class,  
+        main="CO2 Emissions vs Vehicle Classes",
+        xlab = "",
+        ylab = "CO2 Emissions",
+        col = coul[1])
+
+
+
+```
+
+## Engine Size and Cylinders
+
+```{r}
+
+hist(co2_df$Engine.Size, col=coul[1], 
+     main = "Histogram For Engine Size",
+     xlab = "Engine Size")
+
+plot(co2_df$CO2.Emissions~co2_df$Engine.Size,
+     main="CO2 Emissions vs. Engine Size",
+     xlab = "Engine Size",
+     ylab = "CO2 Emissions",
+     col = coul[1])
+
+
+hist(co2_df$Cylinders, col=coul[1], 
+     main = "Histogram For Cylinders",
+     xlab = "Cylinders", 
+     breaks = 5)
+
+plot(co2_df$CO2.Emissions~co2_df$Cylinders,  
+        main="CO2 Emissions vs. Cylinders",
+        xlab = "Cylinders",
+        ylab = "CO2 Emissions",
+        col = coul[1])
+
+```
+
+
+## Transmission
+
+```{r}
+
+# break up gear number and trans type into smaller categories
+
+co2_df$transmission.type <- factor(sub("[0-9^]+", "", co2_df$Transmission))
+
+co2_df <- co2_df %>% 
+          mutate(transmission.type = case_when(
+          transmission.type == "M" ~ "Man",
+          TRUE ~ "Auto"))
+
+co2_df$gear.num <- as.numeric(gsub("\\D+", "", co2_df$Transmission))
+co2_df$gear.num[is.na(co2_df$gear.num)] = 0 # continuous technically has 0 gears
+
+co2_df <- co2_df %>% 
+          select(-c(Transmission))
+
+table(co2_df$transmission.type)
+
+barplot(table(co2_df$transmission.type),
+        main='Transmission Type',
+        col = coul)
+
+boxplot(co2_df$CO2.Emissions~co2_df$transmission.type,  
+        main= "CO2 Emissions vs. Transmission Type",
+        xlab = "Transmission Type",
+        ylab = "CO2 Emissions",
+        col = coul[1])
+
+
+hist(co2_df$gear.num,
+        main='Histogram For Number of Gears',
+        xlab = "Number of Gears",
+        col = coul[1])
+
+plot(co2_df$CO2.Emissions~co2_df$gear.num,  
+        main="CO2 Emissions vs. Number of Gears",
+        xlab = "Number of Gears",
+        ylab = "CO2 Emissions",
+        col = coul[1])
+
+
+```
+
+
+## Fuel Type
+
+```{r}
+
+
+#X = Regular gasoline
+#Z = Premium gasoline
+#D = Diesel
+#E = Ethanol (E85)
+
+# remove the one observation with natural gas (small sample size not good for inference)
+co2_df <- co2_df[co2_df$Fuel.Type != "N", ]
+co2_df <- co2_df %>% 
+          mutate(Fuel.Type = case_when(
+          Fuel.Type == "X" ~ "Regular",
+          TRUE ~ "Non-Regular"))
+table(co2_df$Fuel.Type)
+
+barplot(table(co2_df$Fuel.Type),
+        main='Fuel Type',
+        col = coul)
+
+boxplot(co2_df$CO2.Emissions~co2_df$Fuel.Type,  
+        main="CO2 Emissions vs. Fuel Type",
+        xlab = "Fuel Type",
+        ylab = "CO2 Emissions",
+        col = coul[1])
+
+```
+
+
+## Fuel Consumption
+
+
+```{r}
+hist(co2_df$Fuel.Consumption.City, col=coul[1], 
+     main = "Histogram For Fuel Consumption L/100km (City)",
+     xlab = "Fuel Consumption L/100km (City)")
+
+plot(co2_df$CO2.Emissions~co2_df$Fuel.Consumption.City,
+     main="CO2 Emissions vs Fuel Consumption L/100km (City)",
+     xlab = "Fuel Consumption L/100km (City)",
+     ylab = "CO2 Emissions",
+     col = coul[1])
+
+hist(co2_df$Fuel.Consumption.Hwy, col=coul[1], 
+     main = "Histogram For Fuel Consumption L100/km (Hwy)",
+     xlab = "Fuel Consumption L/100km (Hwy)")
+
+plot(co2_df$CO2.Emissions~co2_df$Fuel.Consumption.Hwy,
+     main="CO2 Emissions vs Fuel Consumption L/100km (Hwy)",
+     xlab = "Fuel Consumption L/100km (Hwy)",
+     ylab = "CO2 Emissions",
+     col = coul[1])
+
+
+# remove the mixed fuel consumption (PCA and FA should find a linear combination anyway) 
+co2_df <- co2_df %>% 
+          select(-c(Fuel.Consumption.Comb, Fuel.Consumption.Comb.MPG))
+
+
+```
+
+
+## Response Variable
+
+
+```{r}
+
+hist(co2_df$CO2.Emissions, col=coul[1], 
+     main = "Histogram For CO2 Emissions",
+     xlab = " CO2 Emissions")
+
+```
+
+# Correlation Matrices of Numerical Variables
+
+```{r}
+
+data.num<- as.matrix(co2_df %>%
+                     select(Engine.Size, Fuel.Consumption.City, Cylinders, 
+                            Fuel.Consumption.Hwy, CO2.Emissions, gear.num)%>%
+                     mutate_all(as.numeric)) 
+
+cor(data.num, method = "pearson")
+
+corrplot(cor(data.num, method = "pearson"), type="upper", order="hclust", tl.col="black", tl.srt=45)
+
+```
+
+
+# VIF's (Checking for Multicollinearity)
+
+
+```{r}
+
+
+co2.raw.mod <-lm(CO2.Emissions ~ ., data=co2_df)
+
+vif_values <- as.data.frame(vif(co2.raw.mod))
+vif_values
+
+
+par(mar=c(5,10,4,1)+.1)
+barplot(vif_values$`GVIF^(1/(2*Df))`, 
+              main = "GVIF^(1/(2*Df)) Values", 
+                      names.arg = rownames(vif_values),
+              horiz = TRUE,
+              las=1,
+              col = coul)
+
+
+
+```
+
+

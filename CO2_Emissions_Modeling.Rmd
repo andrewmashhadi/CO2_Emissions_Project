@@ -1,0 +1,864 @@
+---
+title: "CO2-Emission Modeling"
+author: "Andrew Mashhadi"
+date: '`r Sys.Date()`'
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+# Loading the Data & Libraries
+
+```{r, echo = FALSE, warning = FALSE, error = FALSE}
+library(DAAG)
+library(dplyr)
+library(effects)
+library(car)
+library(corrplot) 
+library(psych)
+library(caret)
+library(readr)
+library(ggplot2)
+```
+
+
+# Clean the data as recommended by the EDA, using One-Hot-Encoding
+
+```{r}
+
+co2_df <- na.omit(read.csv("dataset/CO2_emissions.csv"))
+
+# group the manufacturers into less categories (with commonalities)
+co2_df <- co2_df %>% 
+          mutate(econ.class = case_when(
+          Make == "FORD" | Make == "RAM" | 
+          Make == "DODGE" | Make == "CHRYSLER" |
+          Make == "CHEVROLET" | Make == "GMC" |
+          Make == "JEEP" |
+          Make == "HONDA" | Make == "HYUNDAI" | 
+          Make == "KIA" | Make == "MITSUBISHI" |
+          Make == "NISSAN" | Make == "SCION" |  
+          Make == "SUBARU" | Make == "TOYOTA" |
+          Make == "MAZDA" |
+          Make == "VOLKSWAGON" | Make == "VOLVO" | 
+          Make == "SMART" | Make == "FIAT" ~ "Economy",
+          Make == "BUICK" | Make == "LINCOLN" | 
+          Make == "CADILLAC" | Make == "SRT" |
+          Make == "JAGUAR" |
+          Make == "ACURA" | Make == "GENESIS" | 
+          Make == "INFINITI" | Make == "LEXUS" |
+          Make == "AUDI" | Make == "ALFA ROMERO" |
+          Make == "BMW" | Make == "MINI" |
+          Make == "MERCEDES-BENZ" | Make == "LAND ROVER" ~ "Premium",
+          Make == "ASTON MARTIN" | Make == "BENTLEY" | 
+          Make == "BUGATTI" | Make == "LAMBORCHINI" | 
+          Make == "PORCHSE" | Make == "ROLLS-ROYCE" ~ "Luxury")) %>%
+          select(-c(Make))
+
+
+# simplified categories
+co2_df <- co2_df %>% 
+          mutate(drive = case_when(
+          grepl("4WD", Model, ignore.case = TRUE) |
+          grepl("4X4", Model, ignore.case = TRUE) |
+          grepl("AWD", Model, ignore.case = TRUE) |
+          grepl("xDrive", Model, ignore.case = TRUE) ~ "All-Wheel Drive",
+          TRUE ~ "Two-Wheel Drive")) %>%
+          select(-c(Model))
+
+
+co2_df <- co2_df %>% 
+          mutate(Vehicle.Class = case_when(
+          Vehicle.Class == "COMPACT" | Vehicle.Class == "SUBCOMPACT" |
+          Vehicle.Class == "MINICOMPACT" | Vehicle.Class == "TWO-SEATER" ~ "COMPACT",
+          Vehicle.Class == "MID-SIZE" | Vehicle.Class == "STATION WAGON - MID-SIZE" | 
+          Vehicle.Class == "STATION WAGON - SMALL"~ "MID-SIZE",
+          Vehicle.Class == "FULL-SIZE" ~ "FULL-SIZE",
+          Vehicle.Class == "MINIVAN" | Vehicle.Class == "VAN - CARGO" |
+          Vehicle.Class == "VAN - PASSENGER"  |
+          Vehicle.Class == "PICKUP TRUCK - SMALL" | 
+          Vehicle.Class == "PICKUP TRUCK - STANDARD" |
+          Vehicle.Class == "SUV - SMALL" | 
+          Vehicle.Class == "SUV - STANDARD" ~ "LARGE VEHICLE"))
+
+
+# I break up the transmission categories by transmission type and number
+# of gears
+co2_df$transmission.type <- factor(sub("[0-9^]+", "", co2_df$Transmission))
+
+
+co2_df <- co2_df %>% 
+          mutate(transmission.type = case_when(
+          transmission.type == "M" ~ "Man",
+          TRUE ~ "Auto"))
+
+co2_df$gear.num <- as.numeric(gsub("\\D+", "", co2_df$Transmission))
+co2_df$gear.num[is.na(co2_df$gear.num)] = 0 # continuous technically has 0 gears
+
+
+co2_df <- co2_df %>% 
+          select(-c(Transmission))
+
+# remove the one observation with natural gas (small sample size not good for inference)
+co2_df <- co2_df[co2_df$Fuel.Type != "N", ]
+co2_df <- co2_df %>% 
+          mutate(Fuel.Type = case_when(
+          Fuel.Type == "X" ~ "Regular",
+          TRUE ~ "Non-Regular"))
+
+
+# remove the mixed fuel consumption (PCA and FA should find a linear combination anyway) 
+co2_df <- co2_df %>% 
+          select(-c(Fuel.Consumption.Comb, Fuel.Consumption.Comb.MPG))
+
+co2_df <- na.omit(co2_df)
+
+
+# convert types to factors
+co2_df$econ.class <- factor(co2_df$econ.class)
+co2_df$drive <- factor(co2_df$drive)
+co2_df$Vehicle.Class <- factor(co2_df$Vehicle.Class)
+co2_df$Fuel.Type <- factor(co2_df$Fuel.Type)
+co2_df$transmission.type <- factor(co2_df$transmission.type)
+
+# make dummy variables for PCA and FA
+dummy <- dummyVars(" ~ .", data=co2_df, fullRank = TRUE)
+co2_df <- data.frame(predict(dummy, newdata = co2_df))
+
+
+
+```
+
+
+
+# Train/Test Split
+
+```{r}
+
+# to reproduce
+set.seed(5)
+
+#use 80% of dataset as training set and 20% as test set
+sample <- sample(c(TRUE, FALSE), nrow(co2_df), replace=TRUE, prob=c(0.8,0.2))
+train  <- co2_df[sample, ]
+test   <- co2_df[!sample, ]
+
+
+# 
+normParam <- preProcess(train[, -c(1:3, 6, 9, 10:13)])
+train[, -c(1:3, 6, 9, 10:13)] <- predict(normParam, train[, -c(1:3, 6, 9, 10:13)])
+test[, -c(1:3, 6, 9, 10:13)] <- predict(normParam, test[, -c(1:3, 6, 9, 10:13)])
+
+
+
+```
+
+
+# PCA + Multiple Linear Regression
+
+## PCA
+
+```{r}
+
+# remove response variable before calculating the sample principal components (CO2 Emission) 
+PCs <- prcomp(subset(train, select = -c(CO2.Emissions)), center=FALSE, scale = FALSE)
+
+# output summary of the sample principal components
+summary(PCs)
+
+# print the eigenvector (loadings)
+PCs$rotation[, 1:6]
+
+# scree plot
+var_explained = PCs$sdev^2 / sum(PCs$sdev^2)
+
+plot(1:length(PCs$sdev), var_explained,
+     type = "l", lty = 1, lwd = 3,
+     main = "Scree Plot",
+     xlab = "Sample Principal Component Number",
+     ylab = "Variance Explained")
+grid(nx = NULL, ny = NULL,
+     lty = 2,      # Grid line type
+     col = "gray", # Grid line color
+     lwd = 2)      # Grid line width
+
+
+```
+
+
+## Linear Regression Model with PCs
+
+
+```{r}
+
+train.control <- trainControl(method = "cv", number = 5)
+
+train.PCs <- data.frame(PCs$x, CO2.Emissions = train$CO2.Emissions)
+
+# examine the 10-fold CV performance for different number of PCs
+cv.results <- data.frame()
+for (k in 1:(ncol(train.PCs)-1)){
+  
+  cv.pca.lm <- train(CO2.Emissions ~ ., 
+                      data = train.PCs[, c(1:k, 14)], 
+                      method = "lm", 
+                      trControl = train.control)
+  # save cv results
+  cv.results <- rbind(cv.results, list(k=k, RMSE=cv.pca.lm$results$RMSE, 
+                                       Rsq=cv.pca.lm$results$Rsquared, 
+                                       MAE=cv.pca.lm$results$MAE))
+  print(cv.pca.lm)
+}
+
+# display results
+cv.results
+
+par(mfrow=c(1, 2))
+plot(RMSE ~ k, data=cv.results, 
+     main="5-Fold CV Results",
+     xlab="# Principal Components", 
+     col= "blue", 
+     pch = 19)
+grid(nx = NULL, ny = NULL,
+     lty = 1,      # Grid line type
+     col = "gray", # Grid line color
+     lwd = 1)      # Grid line width
+plot(Rsq ~ k, data=cv.results, 
+     main="5-Fold CV Results",
+     xlab="# Principal Components", 
+     col= "green", 
+     pch = 19)
+grid(nx = NULL, ny = NULL,
+     lty = 1,      # Grid line type
+     col = "gray", # Grid line color
+     lwd = 1)      # Grid line width
+
+```
+
+```{r}
+k.opt <- 6
+
+# re-train full model
+pca.lm <- lm(CO2.Emissions ~ ., data = train.PCs[, c(1:k.opt, 14)])
+summary(pca.lm)
+
+par(mfrow=c(2,2))
+plot(pca.lm, which = c(1, 2, 4, 5))
+```
+
+
+
+```{r}
+
+# Setup test set using training loadings
+x <- as.matrix(subset(test, select = -c(CO2.Emissions)))
+test.PCs <- x %*% PCs$rotation[, 1:k.opt]
+test.PCs <- data.frame(test.PCs, CO2.Emissions = test$CO2.Emissions)
+
+preds <- predict(pca.lm, newdata = test.PCs)
+
+## RMSE
+sqrt(mean((preds - test$CO2.Emissions)^2))
+
+# R-Sq
+RSS <- sum((preds - test$CO2.Emissions)^2)
+TSS <- sum((test$CO2.Emissions-mean(test$CO2.Emissions))^2)
+1 - (RSS/TSS)
+
+```
+
+
+# FA + Multiple Linear Regression
+
+## Factor Analysis
+
+
+```{r}
+
+# remove the response variable for FA
+preds <- subset(train, select=-c(CO2.Emissions))
+
+R <- cor(preds)
+
+
+# principal component solution
+fa_pc <- principal(R, nfactors = 12, rotate = "varimax")
+fa_pc$loadings
+
+
+
+# maximum likelihood solution
+fa_mle <- fa(R, nfactors = 12, fm = "mle", rotate = "varimax")
+fa_mle$loadings
+
+
+# scree plots
+var_exp_pc <- c()
+for (i in 1:12) {
+    var_exp_pc <- c(var_exp_pc, sum((fa_pc$loadings[, i])^2) / sum(diag(R)))
+}
+
+
+var_exp_mle <- c()
+for (i in 1:12) {
+    var_exp_mle <- c(var_exp_mle, sum((fa_mle$loadings[, i])^2) / sum(diag(R)))
+}
+
+
+par(mfrow = c(1, 2))
+
+plot(1:12, var_exp_pc,
+     type = "l", lty = 1, lwd = 3,
+     main = "Scree Plot for PC Method",
+     xlab = "Factor Number",
+     ylab = "Variance Explained")
+grid(nx = NULL, ny = NULL,
+     lty = 2,      # Grid line type
+     col = "gray", # Grid line color
+     lwd = 2)      # Grid line width
+
+
+
+plot(1:12, var_exp_mle,
+     type = "l", lty = 1, lwd = 3,
+     main = "Scree Plot for MLE Method",
+     xlab = "Factor Number",
+     ylab = "Variance Explained")
+grid(nx = NULL, ny = NULL,
+     lty = 2,      # Grid line type
+     col = "gray", # Grid line color
+     lwd = 2)      # Grid line width
+
+
+
+```
+
+
+## Linear Regression with the Factor Scores
+
+
+```{r}
+Pz <- diag(fa_pc$uniquenesses)
+Lz <- fa_pc$loadings[, 1:11]
+z <- train[, -9]
+
+
+# wls factor score estimations
+f_uls <- solve(t(Lz) %*% Lz) %*% t(Lz) %*% t(z) 
+
+head(t(f_uls), n = 5)
+
+```
+
+```{r}
+
+train.Fs <- data.frame(t(f_uls), CO2.Emissions = train$CO2.Emissions)
+
+# re-train full model
+fa.pc.lm <- lm(CO2.Emissions ~ ., data = train.Fs)
+summary(fa.pc.lm)
+
+par(mfrow=c(2,2))
+plot(fa.pc.lm, which = c(1, 2, 4, 5))
+
+```
+
+
+```{r}
+
+Pz <- diag(fa_pc$uniquenesses)
+Lz <- fa_pc$loadings[, 1:11]
+z0 <- test[, -9]
+
+
+# uls factor score estimations
+f_uls <- solve(t(Lz) %*% Lz) %*% t(Lz) %*% t(z0)
+
+test.Fs <- data.frame(t(f_uls), CO2.Emissions = test$CO2.Emissions)
+
+preds <- predict(fa.pc.lm, newdata = test.Fs)
+
+## RMSE
+sqrt(mean((preds - test$CO2.Emissions)^2))
+
+# R-Sq
+RSS <- sum((preds - test$CO2.Emissions)^2)
+TSS <- sum((test$CO2.Emissions-mean(test$CO2.Emissions))^2)
+1 - (RSS/TSS)
+
+```
+
+
+
+```{r}
+Pz <- diag(fa_mle$uniquenesses)
+Lz <- fa_mle$loadings[, 1:8]
+z <- train[, -9]
+
+# wls factor score estimations
+f_wls <- solve(t(Lz) %*% solve(Pz) %*% Lz) %*% t(Lz) %*% solve(Pz) %*% t(z) 
+
+head(t(f_wls), n = 5)
+
+```
+
+
+```{r}
+
+train.Fs <- data.frame(t(f_wls), CO2.Emissions = train$CO2.Emissions)
+
+# re-train full model
+fa.mle.lm <- lm(CO2.Emissions ~ ., data = train.Fs)
+summary(fa.mle.lm)
+
+par(mfrow=c(2,2))
+plot(fa.mle.lm, which = c(1, 2, 4, 5))
+
+```
+
+```{r}
+
+Pz <- diag(fa_mle$uniquenesses)
+Lz <- fa_mle$loadings[, 1:8]
+z0 <- test[, -9]
+
+# wls factor score estimations
+f_wls <- solve(t(Lz) %*% solve(Pz) %*% Lz) %*% t(Lz) %*% solve(Pz) %*% t(z0) 
+
+test.Fs <- data.frame(t(f_wls), CO2.Emissions = test$CO2.Emissions)
+
+preds <- predict(fa.mle.lm, newdata = test.Fs)
+
+## RMSE
+sqrt(mean((preds - test$CO2.Emissions)^2))
+
+# R-Sq
+RSS <- sum((preds - test$CO2.Emissions)^2)
+TSS <- sum((test$CO2.Emissions-mean(test$CO2.Emissions))^2)
+1 - (RSS/TSS)
+
+```
+
+
+
+
+# Alternative Correlation Structure Approaches
+
+
+```{r}
+
+
+co2_df <- na.omit(read.csv("dataset/CO2_emissions.csv"))
+
+# group the manufacturers into less categories (with commonalities)
+co2_df <- co2_df %>% 
+          mutate(econ.class = case_when(
+          Make == "FORD" | Make == "RAM" | 
+          Make == "DODGE" | Make == "CHRYSLER" |
+          Make == "CHEVROLET" | Make == "GMC" |
+          Make == "JEEP" |
+          Make == "HONDA" | Make == "HYUNDAI" | 
+          Make == "KIA" | Make == "MITSUBISHI" |
+          Make == "NISSAN" | Make == "SCION" |  
+          Make == "SUBARU" | Make == "TOYOTA" |
+          Make == "MAZDA" |
+          Make == "VOLKSWAGON" | Make == "VOLVO" | 
+          Make == "SMART" | Make == "FIAT" ~ "Economy",
+          Make == "BUICK" | Make == "LINCOLN" | 
+          Make == "CADILLAC" | Make == "SRT" |
+          Make == "JAGUAR" |
+          Make == "ACURA" | Make == "GENESIS" | 
+          Make == "INFINITI" | Make == "LEXUS" |
+          Make == "AUDI" | Make == "ALFA ROMERO" |
+          Make == "BMW" | Make == "MINI" |
+          Make == "MERCEDES-BENZ" | Make == "LAND ROVER" ~ "Premium",
+          Make == "ASTON MARTIN" | Make == "BENTLEY" | 
+          Make == "BUGATTI" | Make == "LAMBORCHINI" | 
+          Make == "PORCHSE" | Make == "ROLLS-ROYCE" ~ "Luxury")) %>%
+          select(-c(Make))
+
+
+# simplified categories
+co2_df <- co2_df %>% 
+          mutate(drive = case_when(
+          grepl("4WD", Model, ignore.case = TRUE) |
+          grepl("4X4", Model, ignore.case = TRUE) |
+          grepl("AWD", Model, ignore.case = TRUE) |
+          grepl("xDrive", Model, ignore.case = TRUE) ~ "All-Wheel Drive",
+          TRUE ~ "Two-Wheel Drive")) %>%
+          select(-c(Model))
+
+
+co2_df <- co2_df %>% 
+          mutate(Vehicle.Class = case_when(
+          Vehicle.Class == "COMPACT" | Vehicle.Class == "SUBCOMPACT" |
+          Vehicle.Class == "MINICOMPACT" | Vehicle.Class == "TWO-SEATER" ~ "COMPACT",
+          Vehicle.Class == "MID-SIZE" | Vehicle.Class == "STATION WAGON - MID-SIZE" | 
+          Vehicle.Class == "STATION WAGON - SMALL"~ "MID-SIZE",
+          Vehicle.Class == "FULL-SIZE" ~ "FULL-SIZE",
+          Vehicle.Class == "MINIVAN" | Vehicle.Class == "VAN - CARGO" |
+          Vehicle.Class == "VAN - PASSENGER"  |
+          Vehicle.Class == "PICKUP TRUCK - SMALL" | 
+          Vehicle.Class == "PICKUP TRUCK - STANDARD" |
+          Vehicle.Class == "SUV - SMALL" | 
+          Vehicle.Class == "SUV - STANDARD" ~ "LARGE VEHICLE"))
+
+
+# I break up the transmission categories by transmission type and number
+# of gears
+co2_df$transmission.type <- factor(sub("[0-9^]+", "", co2_df$Transmission))
+
+
+co2_df <- co2_df %>% 
+          mutate(transmission.type = case_when(
+          transmission.type == "M" ~ "Man",
+          TRUE ~ "Auto"))
+
+co2_df$gear.num <- as.numeric(gsub("\\D+", "", co2_df$Transmission))
+co2_df$gear.num[is.na(co2_df$gear.num)] = 0 # continuous technically has 0 gears
+
+
+co2_df <- co2_df %>% 
+          select(-c(Transmission))
+
+# remove the one observation with natural gas (small sample size not good for inference)
+co2_df <- co2_df[co2_df$Fuel.Type != "N", ]
+co2_df <- co2_df %>% 
+          mutate(Fuel.Type = case_when(
+          Fuel.Type == "X" ~ "Regular",
+          TRUE ~ "Non-Regular"))
+
+# remove the mixed fuel consumption (PCA and FA should find a linear combination anyway) 
+co2_df <- co2_df %>% 
+          select(-c(Fuel.Consumption.Comb, Fuel.Consumption.Comb.MPG))
+
+co2_df <- na.omit(co2_df)
+
+
+# convert types to factors
+co2_df$econ.class <- factor(co2_df$econ.class)
+co2_df$drive <- factor(co2_df$drive)
+co2_df$Vehicle.Class <- factor(co2_df$Vehicle.Class)
+co2_df$Fuel.Type <- factor(co2_df$Fuel.Type)
+co2_df$transmission.type <- factor(co2_df$transmission.type)
+
+summary(co2_df)
+
+
+```
+
+
+# Train/Test Split
+
+```{r, warning=FALSE}
+
+# to reproduce
+set.seed(5)
+
+#use 80% of dataset as training set and 20% as test set
+sample <- sample(c(TRUE, FALSE), nrow(co2_df), replace=TRUE, prob=c(0.8,0.2))
+train  <- co2_df[sample, ]
+test   <- co2_df[!sample, ]
+
+# scale only the non-factors
+normParam <- preProcess(train[, -7])
+train[, -7] <- predict(normParam, train[, -7])
+test[, -7] <- predict(normParam, test[, -7])
+
+# prepare train and test sets
+train$econ.class <- as.integer(train$econ.class)
+train$drive <- as.integer(train$drive) - 1
+train$Vehicle.Class <- as.integer(train$Vehicle.Class)
+train$Fuel.Type <- as.integer(train$Fuel.Type)
+train$transmission.type <- as.integer(train$transmission.type) - 1
+
+test$econ.class <- as.integer(test$econ.class)
+test$drive <- as.integer(test$drive) - 1
+test$Vehicle.Class <- as.integer(test$Vehicle.Class)
+test$Fuel.Type <- as.integer(test$Fuel.Type)
+test$transmission.type <- as.integer(test$transmission.type) - 1
+
+# mixed correlations
+R <- mixedCor(train[, -7], c = c(2, 3, 5, 6, 10), d = c(4, 8, 9), p = c(1, 7))
+
+```
+
+
+# PCA + Multiple Linear Regression
+
+## PCA
+
+```{r}
+
+PCs <- princomp(covmat=R$rho)
+
+# output summary of the sample principal components
+summary(PCs)
+
+# print the eigenvector (loadings)
+PCs$loadings[, 1:6]
+
+# scree plot
+var_explained = PCs$sdev^2 / sum(PCs$sdev^2)
+
+plot(1:length(PCs$sdev), var_explained,
+     type = "l", lty = 1, lwd = 3,
+     main = "Scree Plot",
+     xlab = "Sample Principal Component Number",
+     ylab = "Variance Explained")
+grid(nx = NULL, ny = NULL,
+     lty = 2,      # Grid line type
+     col = "gray", # Grid line color
+     lwd = 2)      # Grid line width
+
+
+```
+
+
+## Linear Regression Model with PCs
+
+```{r}
+
+# Setup train set using training loadings
+x <- as.matrix(subset(train, select = -c(CO2.Emissions)))
+train.PCs <- x %*% PCs$loadings
+train.PCs <- data.frame(train.PCs, CO2.Emissions = train$CO2.Emissions)
+
+train.control <- trainControl(method = "cv", number = 5)
+
+# examine the 10-fold CV performance for different number of PCs
+cv.results <- data.frame()
+for (k in 1:(ncol(train.PCs)-1)){
+  
+  cv.pca.lm <- train(CO2.Emissions ~ ., 
+                      data = train.PCs[, c(1:k, 11)], 
+                      method = "lm", 
+                      trControl = train.control)
+  # save cv results
+  cv.results <- rbind(cv.results, list(k=k, RMSE=cv.pca.lm$results$RMSE, 
+                                       Rsq=cv.pca.lm$results$Rsquared, 
+                                       MAE=cv.pca.lm$results$MAE))
+  print(cv.pca.lm)
+}
+
+# display results
+cv.results
+
+par(mfrow=c(1, 2))
+plot(RMSE ~ k, data=cv.results, 
+     main="5-Fold CV Results",
+     xlab="# Principal Components", 
+     col= "blue", 
+     pch = 19)
+grid(nx = NULL, ny = NULL,
+     lty = 1,      # Grid line type
+     col = "gray", # Grid line color
+     lwd = 1)      # Grid line width
+plot(Rsq ~ k, data=cv.results, 
+     main="5-Fold CV Results",
+     xlab="# Principal Components", 
+     col= "green", 
+     pch = 19)
+grid(nx = NULL, ny = NULL,
+     lty = 1,      # Grid line type
+     col = "gray", # Grid line color
+     lwd = 1)      # Grid line width
+
+
+```
+
+
+```{r}
+
+# re-train full model
+pca.lm <- lm(CO2.Emissions ~ ., data = train.PCs[, c(1:6, 11)])
+summary(pca.lm)
+
+par(mfrow=c(2,2))
+plot(pca.lm, which = c(1, 2, 4, 5))
+```
+
+
+```{r}
+
+# Setup test set using training loadings
+x <- as.matrix(subset(test, select = -c(CO2.Emissions)))
+test.PCs <- x %*% PCs$loadings[, 1:6]
+test.PCs <- data.frame(test.PCs, CO2.Emissions = test$CO2.Emissions)
+
+preds <- predict(pca.lm, newdata = test.PCs)
+
+## RMSE
+sqrt(mean((preds - test$CO2.Emissions)^2))
+
+
+# R-Sq
+RSS <- sum((preds - test$CO2.Emissions)^2)
+TSS <- sum((test$CO2.Emissions-mean(test$CO2.Emissions))^2)
+1 - (RSS/TSS)
+```
+
+# FA + Multiple Linear Regression
+
+## Factor Analysis
+
+```{r, warning=FALSE}
+
+# principal component solution
+fa_pc <- principal(R$rho, nfactors = 10, rotate='varimax')
+fa_pc$loadings
+
+# maximum likelihood solution
+fa_mle <- fa(R$rho, nfactors = 9, fm = "mle", rotate = 'varimax')
+fa_mle$loadings
+
+
+# scree plots
+var_exp_pc <- c()
+for (i in 1:10) {
+    var_exp_pc <- c(var_exp_pc, sum((fa_pc$loadings[, i])^2) / sum(diag(R$rho)))
+}
+
+
+var_exp_mle <- c()
+for (i in 1:9) {
+    var_exp_mle <- c(var_exp_mle, sum((fa_mle$loadings[, i])^2) / sum(diag(R$rho)))
+}
+
+
+par(mfrow = c(1, 2))
+
+plot(1:10, var_exp_pc,
+     type = "l", lty = 1, lwd = 3,
+     main = "Scree Plot for PC Method",
+     xlab = "Factor Number",
+     ylab = "Variance Explained")
+grid(nx = NULL, ny = NULL,
+     lty = 2,      # Grid line type
+     col = "gray", # Grid line color
+     lwd = 2)      # Grid line width
+
+
+
+plot(1:9, var_exp_mle,
+     type = "l", lty = 1, lwd = 3,
+     main = "Scree Plot for MLE Method",
+     xlab = "Factor Number",
+     ylab = "Variance Explained")
+grid(nx = NULL, ny = NULL,
+     lty = 2,      # Grid line type
+     col = "gray", # Grid line color
+     lwd = 2)      # Grid line width
+
+
+
+```
+
+## Linear Regression with the Factor Scores
+
+
+```{r}
+Pz <- diag(fa_pc$uniquenesses)
+Lz <- fa_pc$loadings[, 1:8]
+z <- train[, -7]
+
+
+# uls factor score estimations
+f_uls <- solve(t(Lz) %*% Lz) %*% t(Lz) %*% t(z) 
+
+head(t(f_uls), n = 5)
+
+```
+
+```{r}
+
+train.Fs <- data.frame(t(f_uls), CO2.Emissions = train$CO2.Emissions)
+
+# re-train full model
+fa.pc.lm <- lm(CO2.Emissions ~ ., data = train.Fs)
+summary(fa.pc.lm)
+
+par(mfrow=c(2,2))
+plot(fa.pc.lm, which = c(1, 2, 4, 5))
+
+```
+
+```{r}
+
+Pz <- diag(fa_pc$uniquenesses)
+Lz <- fa_pc$loadings[, 1:8]
+z0 <- test[, -7]
+
+
+# uls factor score estimations
+f_uls <- solve(t(Lz) %*% Lz) %*% t(Lz) %*% t(z0)
+
+test.Fs <- data.frame(t(f_uls), CO2.Emissions = test$CO2.Emissions)
+
+preds <- predict(fa.pc.lm, newdata = test.Fs)
+
+## RMSE
+sqrt(mean((preds - test$CO2.Emissions)^2))
+
+# R-Sq
+RSS <- sum((preds - test$CO2.Emissions)^2)
+TSS <- sum((test$CO2.Emissions-mean(test$CO2.Emissions))^2)
+1 - (RSS/TSS)
+
+```
+
+
+```{r}
+Pz <- diag(fa_mle$uniquenesses)
+Lz <- fa_mle$loadings[, 1:8]
+z <- train[, -7]
+
+# wls factor score estimations
+f_wls <- solve(t(Lz) %*% solve(Pz) %*% Lz) %*% t(Lz) %*% solve(Pz) %*% t(z) 
+
+head(t(f_wls), n = 5)
+
+```
+
+
+```{r}
+
+train.Fs <- data.frame(t(f_wls), CO2.Emissions = train$CO2.Emissions)
+
+# re-train full model
+fa.mle.lm <- lm(CO2.Emissions ~ ., data = train.Fs)
+summary(fa.mle.lm)
+
+par(mfrow=c(2,2))
+plot(fa.mle.lm, which = c(1, 2, 4, 5))
+
+```
+
+
+```{r}
+
+Pz <- diag(fa_mle$uniquenesses)
+Lz <- fa_mle$loadings[, 1:8]
+z0 <- test[, -7]
+
+# wls factor score estimations
+f_wls <- solve(t(Lz) %*% solve(Pz) %*% Lz) %*% t(Lz) %*% solve(Pz) %*% t(z0) 
+
+test.Fs <- data.frame(t(f_wls), CO2.Emissions = test$CO2.Emissions)
+
+preds <- predict(fa.mle.lm, newdata = test.Fs)
+
+## RMSE
+sqrt(mean((preds - test$CO2.Emissions)^2))
+
+# R-Sq
+RSS <- sum((preds - test$CO2.Emissions)^2)
+TSS <- sum((test$CO2.Emissions-mean(test$CO2.Emissions))^2)
+1 - (RSS/TSS)
+
+```
+
+
